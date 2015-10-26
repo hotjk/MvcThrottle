@@ -14,7 +14,8 @@ namespace MvcThrottle.Demo
             var throttleFilter = new MvcThrottleCustomFilter
             {
                 Policy = ThrottlePolicy.FromStore(new PolicyConfigurationProvider()),
-                Logger = new MvcThrottleCustomLogger()
+                Logger = new MvcThrottleCustomLogger(),
+                Repository = new MemoryCacheRepository()
             };
 
 
