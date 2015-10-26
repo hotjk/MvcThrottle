@@ -13,6 +13,13 @@ namespace MvcThrottle.Demo
 
             var throttleFilter = new MvcThrottleCustomFilter
             {
+                Policy = ThrottlePolicy.FromStore(new PolicyConfigurationProvider()),
+                Logger = new MvcThrottleCustomLogger()
+            };
+
+            /*
+            var throttleFilter = new MvcThrottleCustomFilter
+            {
                 Policy = new MvcThrottle.ThrottlePolicy(perSecond: 2, perMinute: 10, perHour: 60 * 10, perDay: 600 * 10)
                 {
                     //scope to IPs
@@ -82,6 +89,7 @@ namespace MvcThrottle.Demo
                 },
                 Logger = new MvcThrottleCustomLogger()
             };
+            */
 
             filters.Add(throttleFilter);
         }

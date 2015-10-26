@@ -55,6 +55,65 @@ namespace MvcThrottle
             if (perWeek.HasValue) Rates.Add(RateLimitPeriod.Week, perWeek.Value);
         }
 
+        public static ThrottlePolicy FromStore(IThrottlePolicyProvider provider)
+        {
+            var settings = provider.ReadSettings();
+            var whitelists = provider.AllWhitelists();
+            var rules = provider.AllRules();
+
+            var policy = new ThrottlePolicy(
+                perSecond: settings.LimitPerSecond,
+               perMinute: settings.LimitPerMinute,
+               perHour: settings.LimitPerHour,
+               perDay: settings.LimitPerDay,
+               perWeek: settings.LimitPerWeek);
+
+            policy.IpThrottling = settings.IpThrottling;
+            policy.ClientThrottling = settings.ClientThrottling;
+            policy.EndpointThrottling = settings.EndpointThrottling;
+            policy.StackBlockedRequests = settings.StackBlockedRequests;
+
+            policy.IpRules = new Dictionary<string, RateLimits>();
+            policy.ClientRules = new Dictionary<string, RateLimits>();
+            policy.EndpointRules = new Dictionary<string, RateLimits>();
+            policy.EndpointWhitelist = new List<string>();
+            policy.IpWhitelist = new List<string>();
+            policy.ClientWhitelist = new List<string>();
+
+            foreach (var item in rules)
+            {
+                var rateLimit = new RateLimits
+                {
+                    PerSecond = item.LimitPerSecond,
+                    PerMinute = item.LimitPerMinute,
+                    PerHour = item.LimitPerHour,
+                    PerDay = item.LimitPerDay,
+                    PerWeek = item.LimitPerWeek
+                };
+
+                switch (item.PolicyType)
+                {
+                    case ThrottlePolicyType.IpThrottling:
+                        policy.IpRules.Add(item.Entry, rateLimit);
+                        break;
+                    case ThrottlePolicyType.ClientThrottling:
+                        policy.ClientRules.Add(item.Entry, rateLimit);
+                        break;
+                    case ThrottlePolicyType.EndpointThrottling:
+                        policy.EndpointRules.Add(item.Entry, rateLimit);
+                        break;
+                }
+            }
+
+            if (whitelists != null)
+            {
+                policy.IpWhitelist.AddRange(whitelists.Where(x => x.PolicyType == ThrottlePolicyType.IpThrottling).Select(x => x.Entry));
+                policy.ClientWhitelist.AddRange(whitelists.Where(x => x.PolicyType == ThrottlePolicyType.ClientThrottling).Select(x => x.Entry));
+                policy.EndpointWhitelist.AddRange(whitelists.Where(x => x.PolicyType == ThrottlePolicyType.EndpointThrottling).Select(x => x.Entry));
+            }
+            return policy;
+        }
+
     }
 
     public enum EndpointThrottlingType
