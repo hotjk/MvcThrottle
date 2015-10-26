@@ -73,28 +73,28 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="CacheRepository.cs" />
+    <Compile Include="Repositories\CacheRepository.cs" />
     <Compile Include="Configuration\ThrottlePolicyConfiguration.cs" />
     <Compile Include="Configuration\ThrottlePolicyRuleConfigurationCollection.cs" />
     <Compile Include="Configuration\ThrottlePolicyRuleConfigurationElement.cs" />
     <Compile Include="Configuration\ThrottlePolicyWhitelistConfigurationCollection.cs" />
     <Compile Include="Configuration\ThrottlePolicyWhitelistConfigurationElement.cs" />
-    <Compile Include="IPAddressRange.cs" />
+    <Compile Include="Models\IPAddressRange.cs" />
     <Compile Include="IThrottleLogger.cs" />
-    <Compile Include="IThrottleRepository.cs" />
+    <Compile Include="Repositories\IThrottleRepository.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Providers\IThrottlePolicyProvider.cs" />
     <Compile Include="Providers\PolicyConfigurationProvider.cs" />
-    <Compile Include="RateLimit.cs" />
-    <Compile Include="RequestIdentity.cs" />
-    <Compile Include="ThrottingAttributes.cs" />
-    <Compile Include="ThrottleCounter.cs" />
+    <Compile Include="Models\RateLimit.cs" />
+    <Compile Include="Models\RequestIdentity.cs" />
+    <Compile Include="Attributes\ThrottingAttributes.cs" />
+    <Compile Include="Models\ThrottleCounter.cs" />
     <Compile Include="ThrottleLogEntry.cs" />
     <Compile Include="ThrottlePolicy.cs" />
-    <Compile Include="ThrottlePolicyRule.cs" />
-    <Compile Include="ThrottlePolicySettings.cs" />
-    <Compile Include="ThrottlePolicyType.cs" />
-    <Compile Include="ThrottlePolicyWhitelist.cs" />
+    <Compile Include="Models\ThrottlePolicyRule.cs" />
+    <Compile Include="Models\ThrottlePolicySettings.cs" />
+    <Compile Include="Models\ThrottlePolicyType.cs" />
+    <Compile Include="Models\ThrottlePolicyWhitelist.cs" />
     <Compile Include="ThrottlingFilter.cs" />
   </ItemGroup>
   <ItemGroup>
