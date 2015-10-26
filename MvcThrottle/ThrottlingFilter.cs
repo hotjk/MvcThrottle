@@ -52,6 +52,73 @@ namespace MvcThrottle
         /// </summary>
         public HttpStatusCode QuotaExceededResponseCode { get; set; }
 
+        internal TimeSpan GetTimeSpanFromPeriod(RateLimitPeriod rateLimitPeriod)
+        {
+            var timeSpan = TimeSpan.FromSeconds(1);
+
+            switch (rateLimitPeriod)
+            {
+                case RateLimitPeriod.Second:
+                    timeSpan = TimeSpan.FromSeconds(1);
+                    break;
+                case RateLimitPeriod.Minute:
+                    timeSpan = TimeSpan.FromMinutes(1);
+                    break;
+                case RateLimitPeriod.Hour:
+                    timeSpan = TimeSpan.FromHours(1);
+                    break;
+                case RateLimitPeriod.Day:
+                    timeSpan = TimeSpan.FromDays(1);
+                    break;
+                case RateLimitPeriod.Week:
+                    timeSpan = TimeSpan.FromDays(7);
+                    break;
+            }
+
+            return timeSpan;
+        }
+
+        //the IP rules are applied last and will overwrite any client rule you might defined
+        internal void ApplyRules(RequestIdentity identity, TimeSpan timeSpan, RateLimitPeriod rateLimitPeriod, ref long rateLimit)
+        {
+            // apply endpoint rate limits
+            if (Policy.EndpointRules != null)
+            {
+                var rules = Policy.EndpointRules.Where(x => identity.Endpoint.Contains(x.Key.ToLowerInvariant())).ToList();
+                if (rules.Any())
+                {
+                    // get the lower limit from all applying rules
+                    var customRate = (from r in rules let rateValue = r.Value.GetLimit(rateLimitPeriod) select rateValue).Min();
+
+                    if (customRate > 0)
+                    {
+                        rateLimit = customRate;
+                    }
+                }
+            }
+
+            // apply custom rate limit for clients that will override endpoint limits
+            if (Policy.ClientRules != null && Policy.ClientRules.Keys.Contains(identity.ClientKey))
+            {
+                var limit = Policy.ClientRules[identity.ClientKey].GetLimit(rateLimitPeriod);
+                if (limit > 0)
+                {
+                    rateLimit = limit;
+                }
+            }
+
+            // enforce ip rate limit as is most specific 
+            string ipRule = null;
+            if (Policy.IpRules != null && ContainsIp(Policy.IpRules.Keys.ToList(), identity.ClientIp, out ipRule))
+            {
+                var limit = Policy.IpRules[ipRule].GetLimit(rateLimitPeriod);
+                if (limit > 0)
+                {
+                    rateLimit = limit;
+                }
+            }
+        }
+
         public override void OnActionExecuting(ActionExecutingContext filterContext)
         {
             EnableThrottlingAttribute attrPolicy = null;
@@ -74,37 +141,12 @@ namespace MvcThrottle
                     }
 
                     //apply policy
-                    //the IP rules are applied last and will overwrite any client rule you might defined
                     foreach (var rate in rates)
                     {
                         var rateLimitPeriod = rate.Key;
                         var rateLimit = rate.Value;
 
-                        switch (rateLimitPeriod)
-                        {
-                            case RateLimitPeriod.Second:
-                                timeSpan = TimeSpan.FromSeconds(1);
-                                break;
-                            case RateLimitPeriod.Minute:
-                                timeSpan = TimeSpan.FromMinutes(1);
-                                break;
-                            case RateLimitPeriod.Hour:
-                                timeSpan = TimeSpan.FromHours(1);
-                                break;
-                            case RateLimitPeriod.Day:
-                                timeSpan = TimeSpan.FromDays(1);
-                                break;
-                            case RateLimitPeriod.Week:
-                                timeSpan = TimeSpan.FromDays(7);
-                                break;
-                        }
-
-                        //increment counter
-                        string requestId;
-                        var throttleCounter = ProcessRequest(identity, timeSpan, rateLimitPeriod, out requestId);
-
-                        if (throttleCounter.Timestamp + timeSpan < DateTime.UtcNow)
-                            continue;
+                        timeSpan = GetTimeSpanFromPeriod(rateLimitPeriod);
 
                         //apply EnableThrottlingAttribute policy
                         var attrLimit = attrPolicy.GetLimit(rateLimitPeriod);
@@ -113,58 +155,40 @@ namespace MvcThrottle
                             rateLimit = attrLimit;
                         }
 
-                        //apply endpoint rate limits
-                        if (Policy.EndpointRules != null)
+                        // apply global rules
+                        ApplyRules(identity, timeSpan, rateLimitPeriod, ref rateLimit);
+
+                        if (rateLimit > 0)
                         {
-                            var rules = Policy.EndpointRules.Where(x => identity.Endpoint.ToLowerInvariant().Contains(x.Key.ToLowerInvariant())).ToList();
-                            if (rules.Any())
+                            //increment counter
+                            string requestId;
+                            var throttleCounter = ProcessRequest(identity, timeSpan, rateLimitPeriod, out requestId);
+
+                            if (throttleCounter.Timestamp + timeSpan < DateTime.UtcNow)
+                                continue;
+
+                            //check if limit is reached
+                            if (throttleCounter.TotalRequests > rateLimit)
                             {
-                                //get the lower limit from all applying rules
-                                var customRate = (from r in rules let rateValue = r.Value.GetLimit(rateLimitPeriod) select rateValue).Min();
+                                //log blocked request
+                                if (Logger != null) Logger.Log(ComputeLogEntry(requestId, identity, throttleCounter, rateLimitPeriod.ToString(), rateLimit, filterContext.HttpContext.Request));
 
-                                if (customRate > 0)
-                                {
-                                    rateLimit = customRate;
-                                }
+                                //break execution and return 409 
+                                var message = string.IsNullOrEmpty(QuotaExceededMessage) ?
+                                    "HTTP request quota exceeded! maximum admitted {0} per {1}" : QuotaExceededMessage;
+
+                                //add status code and retry after x seconds to response
+                                filterContext.HttpContext.Response.StatusCode = (int)QuotaExceededResponseCode;
+                                filterContext.HttpContext.Response.Headers.Set("Retry-After", RetryAfterFrom(throttleCounter.Timestamp, rateLimitPeriod));
+
+                                filterContext.Result = QuotaExceededResult(
+                                    filterContext.RequestContext,
+                                    string.Format(message, rateLimit, rateLimitPeriod),
+                                    QuotaExceededResponseCode,
+                                    requestId);
+
+                                return;
                             }
-                        }
-
-                        //apply custom rate limit for clients that will override endpoint limits
-                        if (Policy.ClientRules != null && Policy.ClientRules.Keys.Contains(identity.ClientKey))
-                        {
-                            var limit = Policy.ClientRules[identity.ClientKey].GetLimit(rateLimitPeriod);
-                            if (limit > 0) rateLimit = limit;
-                        }
-
-                        //enforce ip rate limit as is most specific 
-                        string ipRule = null;
-                        if (Policy.IpRules != null && ContainsIp(Policy.IpRules.Keys.ToList(), identity.ClientIp, out ipRule))
-                        {
-                            var limit = Policy.IpRules[ipRule].GetLimit(rateLimitPeriod);
-                            if (limit > 0) rateLimit = limit;
-                        }
-
-                        //check if limit is reached
-                        if (rateLimit > 0 && throttleCounter.TotalRequests > rateLimit)
-                        {
-                            //log blocked request
-                            if (Logger != null) Logger.Log(ComputeLogEntry(requestId, identity, throttleCounter, rateLimitPeriod.ToString(), rateLimit, filterContext.HttpContext.Request));
-
-                            //break execution and return 409 
-                            var message = string.IsNullOrEmpty(QuotaExceededMessage) ?
-                                "HTTP request quota exceeded! maximum admitted {0} per {1}" : QuotaExceededMessage;
-
-                            //add status code and retry after x seconds to response
-                            filterContext.HttpContext.Response.StatusCode = (int)QuotaExceededResponseCode;
-                            filterContext.HttpContext.Response.Headers.Set("Retry-After", RetryAfterFrom(throttleCounter.Timestamp, rateLimitPeriod));
-
-                            filterContext.Result = QuotaExceededResult(
-                                filterContext.RequestContext,
-                                string.Format(message, rateLimit, rateLimitPeriod),
-                                QuotaExceededResponseCode,
-                                requestId);
-                                
-                            return;
                         }
                     }
                 }

@@ -17,6 +17,7 @@ namespace MvcThrottle.Demo
                 Logger = new MvcThrottleCustomLogger()
             };
 
+
             /*
             var throttleFilter = new MvcThrottleCustomFilter
             {
